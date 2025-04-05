@@ -10,28 +10,34 @@ void filter_Controller(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDT
     else if(sw0==0 && sw1==0)
         frame (in, out);
     else if(sw0==0 && sw1==0)
-        avg_Conv(in, out, 2);
-    else(sw0==0 && sw1==0)
         avg_Conv(in, out, 4);
+    else(sw0==0 && sw1==0)
+        avg_Conv(in, out, 8);
 }
 
 void checkered(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH]){
     for(i=0; i< BHEIGHT; i++)
         for(j=0; j < BWIDTH; j ++)
             if (!(i ^ j & 1)) /*use xor to add lsb and mask it, avoids using divisions*/
-                out[i][j]=0x00ffffff;
+                out[i][j]=0x0;
             else
                 out[i][j]=in[i][j];
 }
 
 void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH]){
-    for(i=0; i < BHEIGHT; i++)
-        for(j=0; j < BWIDTH; j ++)
-            if (i==0 || j==0 || i==BHEIGHT-1 || j==BWIDTH-1)
-                out[i][j]=0x00ffffff;
-            else
+    for(i=1; i < BHEIGHT-1; i++)
+        for(j=1; j < BWIDTH-1; j ++)
                 out[i][j]=in[i][j];
+    
+    for(i=0; i < BHEIGHT; i++){
+        out[i][0]=0x0;
+        out[i][BWIDTH-1]=0x0;
+    }
 
+    for(j=0; j < BWIDTH; j++){
+        out[0][j]=0x0;
+        out[BHEIGHT-1][j]=0x0;
+    }
 
 }
 
@@ -46,7 +52,7 @@ void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH], unsig
                 for(kj= -offset; kj < offset+1; kj++)
                     if(ki !=0 || kj !=0)    
                         sum+=in[i+ki][i+kj];
-            out[i][j]= sum / 8;
+            out[i][j]= sum / ((offset<<1 +1) * (offset<<1 +1) - 1); /*replace by piecewise value from memory*/
         }
     }
             
