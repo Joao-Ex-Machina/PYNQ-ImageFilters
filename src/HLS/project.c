@@ -1,5 +1,12 @@
 #include <ap_int.h>
 
+#define UHEIGHT 64 /*Non-padded parts*/
+#define UWIDTH 64
+
+
+ap_int<16>  div_off4= 17;   /*Reciprocal of 1/15*/
+ap_int<16>  div_off8= 1;  /*Reciprocal of 1/289*/
+
 void filter_Controller(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH], ap_int<1> sw0, ap_int<1> sw1){
     #pragma HLS INTERFACE s_axilite port=return
     #pragma HLS INTERFACE bram port=in
@@ -16,8 +23,8 @@ void filter_Controller(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDT
 }
 
 void checkered(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH]){
-    for(i=0; i< BHEIGHT; i++)
-        for(j=0; j < BWIDTH; j ++)
+    for(i=UHEIGHT; i< BHEIGHT-UHEIGHT; i++)
+        for(j=UWIDTH; j < BWIDTH-UWIDTH; j ++)
             if (!(i ^ j & 1)) /*use xor to add lsb and mask it, avoids using divisions*/
                 out[i][j]=0x0;
             else
@@ -25,16 +32,16 @@ void checkered(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH]){
 }
 
 void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH]){
-    for(i=1; i < BHEIGHT-1; i++)
-        for(j=1; j < BWIDTH-1; j ++)
+    for(i=1+UHEIGHT; i < BHEIGHT-1-UHEIGHT; i++)
+        for(j=1+UWIDTH; j < BWIDTH-1-BHEIGHT; j ++)
                 out[i][j]=in[i][j];
     
-    for(i=0; i < BHEIGHT; i++){
+    for(i=UHEIGHT; i < BHEIGHT-UHEIGHT; i++){
         out[i][0]=0x0;
         out[i][BWIDTH-1]=0x0;
     }
 
-    for(j=0; j < BWIDTH; j++){
+    for(j=UWIDTH; j < BWIDTH-UWIDTH; j++){
         out[0][j]=0x0;
         out[BHEIGHT-1][j]=0x0;
     }
@@ -42,9 +49,42 @@ void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH]){
 }
 
 void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH], unsigned offset){
+    ap_int<8> i, j;
+    ap_int<8> ki, kj;
+    ap_int<8> sum = 0;
+    ap_int<16> accum[][];
+    ap_int<16> div;
+    if(offset == 4)
+        div=div_off4;
+    else
+        div=div_off8;
+    count=
+    for(i = offset; i < BHEIGHT-offset; i++){
+        for(j = offset; j < BWIDTH-offset; j++){
+            sum = 0;
+            for (ki = -offset; ki < offset+1; ki++) /*not parallelizable - AACum*/
+                for(kj= -offset; kj < offset+1; kj++)
+                    if(ki !=0 || kj !=0)    
+                        accum[][]+=in[i][j]; /*have to finish accum indexing*/
+            out[i-offset][j-offset]=accum[i-offset][j-offset] * div;
+            accum[][]=0;
+        }
+        count++;
+        if(count< offset*2+1)
+            count=0;
+    }
+            
+}
+
+void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH], unsigned offset){
     unsigned i, j;
     unsigned ki, kj;
     unsigned sum = 0;
+    ap_int<16> div;
+    if(offset == 4)
+        div=div_off4;
+    else
+        div=div_off8;
     for(i = offset; i < BHEIGHT-offset; i++){
         for(j = offset; j < BWIDTH-offset; j++){
             sum = 0;
@@ -52,10 +92,8 @@ void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH], unsig
                 for(kj= -offset; kj < offset+1; kj++)
                     if(ki !=0 || kj !=0)    
                         sum+=in[i+ki][i+kj];
-            out[i][j]= sum / ((offset<<1 +1) * (offset<<1 +1) - 1); /*replace by piecewise value from memory*/
+            out[i][j]= sum * div; /*replace by piecewise value from memory*/
         }
     }
             
 }
-
-
