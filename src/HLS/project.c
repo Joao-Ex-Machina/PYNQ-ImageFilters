@@ -1,13 +1,18 @@
 #include <ap_int.h>
 
-#define UHEIGHT 64 /*Non-padded parts*/
-#define UWIDTH 64
+#define BHEIGHT 64 /*full block*/
+#define BWIDTH 64
+
+# define PADSIZE 8
+
+#define UHEIGHT (BHEIGHT-2*PADSIZE) /*Non-padded parts*/
+#define UWIDTH (BWIDTH-2*PADSIZE)
 
 
 ap_int<16>  div_off4= 17;   /*Reciprocal of 1/15*/
 ap_int<16>  div_off8= 1;  /*Reciprocal of 1/289*/
 
-void filter_Controller(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH], ap_int<1> sw0, ap_int<1> sw1){
+void filter_Controller(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], ap_int<1> sw0, ap_int<1> sw1){
     #pragma HLS INTERFACE s_axilite port=return
     #pragma HLS INTERFACE bram port=in
     #pragma HLS INTERFACE bram port=out
@@ -22,28 +27,28 @@ void filter_Controller(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDT
         avg_Conv(in, out, 8);
 }
 
-void checkered(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH]){
-    for(i=UHEIGHT; i< BHEIGHT-UHEIGHT; i++)
-        for(j=UWIDTH; j < BWIDTH-UWIDTH; j ++)
+void checkered(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
+    for(i=PADSIZE; i< BHEIGHT-PADSIZE; i++)
+        for(j=PADSIZE; j < BWIDTH-PADSIZE; j ++)
             if (!(i ^ j & 1)) /*use xor to add lsb and mask it, avoids using divisions*/
-                out[i][j]=0x0;
+                out[i-PADSIZE][j-PADSIZE]=0x0;
             else
-                out[i][j]=in[i][j];
+                out[i-PADSIZE][j-PADSIZE]=in[i][j];
 }
 
-void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH]){
-    for(i=1+UHEIGHT; i < BHEIGHT-1-UHEIGHT; i++)
-        for(j=1+UWIDTH; j < BWIDTH-1-BHEIGHT; j ++)
-                out[i][j]=in[i][j];
+void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
+    for(i=1+PADSIZE; i < BHEIGHT-1-PADSIZE; i++) /*non-framed*/
+        for(j=1+PADSIZE; j < BWIDTH-1-PADSIZE; j ++)
+                out[i-PADSIZE][j-PADSIZE]=in[i][j];
     
-    for(i=UHEIGHT; i < BHEIGHT-UHEIGHT; i++){
+    for(i=0; i < UHEIGHT; i++){ /*vertical frame*/
         out[i][0]=0x0;
-        out[i][BWIDTH-1]=0x0;
+        out[i][UWIDTH-1]=0x0;
     }
 
-    for(j=UWIDTH; j < BWIDTH-UWIDTH; j++){
+    for(j=1; j < UWIDTH-1; j++){ /*horizontal frame*/
         out[0][j]=0x0;
-        out[BHEIGHT-1][j]=0x0;
+        out[UHEIGHT-1][j]=0x0;
     }
 
 }
