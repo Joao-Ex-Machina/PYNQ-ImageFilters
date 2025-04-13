@@ -1,22 +1,21 @@
 #include <ap_int.h>
 
-#define BHEIGHT 64 /*full block*/
-#define BWIDTH 64
+#define BHEIGHT 128 /*full square block*/
+#define BWIDTH BHEIGHT
 
 # define PADSIZE 8
 
 #define UHEIGHT (BHEIGHT-2*PADSIZE) /*Non-padded parts*/
 #define UWIDTH (BWIDTH-2*PADSIZE)
 
-
-ap_int<16>  div_off4= 17;   /*Reciprocal of 1/15*/
-ap_int<16>  div_off8= 1;  /*Reciprocal of 1/289*/
+#define DIV_r4 0.0125 /*Reciprocal of 1/80*/
+#define DIV_r8 0.003472222  /*Reciprocal of 1/288*/
 
 void filter_Controller(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], ap_int<1> sw0, ap_int<1> sw1){
     #pragma HLS INTERFACE s_axilite port=return
     #pragma HLS INTERFACE bram port=in
     #pragma HLS INTERFACE bram port=out
-    
+
     if(sw0==0 && sw1==0)
         checkered(in, out);
     else if(sw0==0 && sw1==0)
@@ -40,7 +39,7 @@ void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
     for(i=1+PADSIZE; i < BHEIGHT-1-PADSIZE; i++) /*non-framed*/
         for(j=1+PADSIZE; j < BWIDTH-1-PADSIZE; j ++)
                 out[i-PADSIZE][j-PADSIZE]=in[i][j];
-    
+
     for(i=0; i < UHEIGHT; i++){ /*vertical frame*/
         out[i][0]=0x0;
         out[i][UWIDTH-1]=0x0;
@@ -53,32 +52,77 @@ void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
 
 }
 
-void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH], unsigned offset){
+void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset){
+    /* iterable coordinates*/
     ap_int<8> i, j;
     ap_int<8> ki, kj;
-    ap_int<8> sum = 0;
-    ap_int<16> accum[][];
-    ap_int<16> div;
-    if(offset == 4)
-        div=div_off4;
-    else
-        div=div_off8;
-    count=
-    for(i = offset; i < BHEIGHT-offset; i++){
-        for(j = offset; j < BWIDTH-offset; j++){
-            sum = 0;
-            for (ki = -offset; ki < offset+1; ki++) /*not parallelizable - AACum*/
-                for(kj= -offset; kj < offset+1; kj++)
-                    if(ki !=0 || kj !=0)    
-                        accum[][]+=in[i][j]; /*have to finish accum indexing*/
-            out[i-offset][j-offset]=accum[i-offset][j-offset] * div;
-            accum[][]=0;
+    ap_int<8> iaccum, jaccum;
+    /* Bi-dimensional array of Q17.0 accumulators for the worst case*/
+    /*Why Q17.0? Do 255 * 288....*/
+    ap_int<17, AP_TRN, AP_SAT> accum[2*8+1][UWIDTH];
+    ap_fixed<8,0, AP_TRN, AP_SAT> res;
+    ap_fixed<0,17, AP_TRN, AP_SAT> div;
+    ap_int<8> count = offset + 1;
+    ap_int<8> countMax;
+
+    if(offset == 4){
+        div=DIV_r4; /*setup Q0.17 divisors */
+        countMax=9; /*setup max line counter */
+    }
+    else{
+        div=DIV_r8;
+        countMax=17;
+    }
+
+    for (i=0; i<2*8+1; i++)
+        for(j=0; j > UWIDTH; j++)
+            accum[i][j]=0;
+
+    for(i = PADSIZE-offset; i < BHEIGHT-PADSIZE+offset; i++){ /*Pad always to offset 8*/
+        for(j = PADSIZE-offset; j < BWIDTH-PADSIZE+offset; j++){
+
+            for (ki = -offset; ki < offset+1; ki++){
+                for(kj= -offset; kj < offset+1; kj++){
+
+                    iaccum = i + ki - PADSIZE; /*calculate input image indexing*/
+                    jaccum = j + kj - PADSIZE;
+                    if(iaccum < 0 || iaccum >= UHEIGHT) /*Verify that indexed accum related to non-paded pixel*/
+                        continue;
+                    if(jaccum < 0 || jaccum >= UWIDTH)
+                        continue;
+
+                    iaccum = count + ki; /*convert to reusable accum matrix indexing*/
+                    if(iaccum < 0)
+                        iaccum += countMax;
+                    else if(iaccum >= countMax)
+                        iaccum -= countMax;
+
+                    if(ki !=0 || kj !=0)  /*Self does not count to out*/
+                        accum[iaccum][jaccum] += in[i][j]; /*have to finish accum indexing*/
+                }
+            }
+            if(i-PADSIZE-offset < PADSIZE || i-PADSIZE-offset >= UHEIGHT)
+                continue;
+            if(j-PADSIZE-offset < PADSIZE || j-PADSIZE-offset >= UWIDTH)
+                continue;
+
+            jaccum=j-PADSIZE-offset;
+            iaccum=count-offset;
+
+            if(iaccum < 0)
+                iaccum += countMax;
+            else if(iaccum >= countMax)
+                iaccum -= countMax;
+
+            res = accum[iaccum][jaccum] * div; /*Q17.0 * Q0.16 = Q17.16*/
+            out[i-PADSIZE][j-PADSIZE]= res;
+            accum[iaccum][jaccum]=0;
         }
         count++;
-        if(count< offset*2+1)
+        if(count >= 8*2+1)
             count=0;
     }
-            
+
 }
 
 void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH], unsigned offset){
@@ -90,15 +134,15 @@ void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH],
         div=div_off4;
     else
         div=div_off8;
-    for(i = offset; i < BHEIGHT-offset; i++){
-        for(j = offset; j < BWIDTH-offset; j++){
+    for(i = 8-offset; i < BHEIGHT-8+offset; i++){ /*Pad always to offset 8*/
+        for(j = 8-offset; j < BWIDTH-8+offset; j++){
             sum = 0;
             for (ki = -offset; ki < offset+1; ki++) /*not parallelizable - AACum*/
                 for(kj= -offset; kj < offset+1; kj++)
-                    if(ki !=0 || kj !=0)    
+                    if(ki !=0 || kj !=0)
                         sum+=in[i+ki][i+kj];
             out[i][j]= sum * div; /*replace by piecewise value from memory*/
         }
     }
-            
+
 }
