@@ -1,15 +1,20 @@
 #include <ap_int.h>
+#include <ap_fixed.h>
 
 #define BHEIGHT 128 /*full square block*/
 #define BWIDTH BHEIGHT
 
-# define PADSIZE 8
+#define PADSIZE 8
 
 #define UHEIGHT (BHEIGHT-2*PADSIZE) /*Non-padded parts*/
 #define UWIDTH (BWIDTH-2*PADSIZE)
 
 #define DIV_r4 0.0125 /*Reciprocal of 1/80*/
 #define DIV_r8 0.003472222  /*Reciprocal of 1/288*/
+
+void checkered(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]);
+void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]);
+void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset);
 
 void filter_Controller(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], ap_int<1> sw0, ap_int<1> sw1){
     #pragma HLS INTERFACE s_axilite port=return
@@ -18,24 +23,28 @@ void filter_Controller(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDT
 
     if(sw0==0 && sw1==0)
         checkered(in, out);
-    else if(sw0==0 && sw1==0)
+    else if(sw0==0 && sw1==1)
         frame (in, out);
-    else if(sw0==0 && sw1==0)
+    else if(sw0==1 && sw1==0)
         avg_Conv(in, out, 4);
-    else(sw0==0 && sw1==0)
+    else /*if (sw0==1 && sw1==1)*/
         avg_Conv(in, out, 8);
 }
 
 void checkered(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
+	int i,j;
+
     for(i=PADSIZE; i< BHEIGHT-PADSIZE; i++)
         for(j=PADSIZE; j < BWIDTH-PADSIZE; j ++)
-            if (!(i ^ j & 1)) /*use xor to add lsb and mask it, avoids using divisions*/
+            if (!((i ^ j) & 1)) /*use xor to add lsb and mask it, avoids using divisions*/
                 out[i-PADSIZE][j-PADSIZE]=0x0;
             else
                 out[i-PADSIZE][j-PADSIZE]=in[i][j];
 }
 
 void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
+	int i,j;
+
     for(i=1+PADSIZE; i < BHEIGHT-1-PADSIZE; i++) /*non-framed*/
         for(j=1+PADSIZE; j < BWIDTH-1-PADSIZE; j ++)
                 out[i-PADSIZE][j-PADSIZE]=in[i][j];
@@ -54,14 +63,13 @@ void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
 
 void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset){
     /* iterable coordinates*/
-    ap_int<8> i, j;
     ap_int<8> ki, kj;
     ap_int<8> iaccum, jaccum;
     /* Bi-dimensional array of Q17.0 accumulators for the worst case*/
     /*Why Q17.0? Do 255 * 288....*/
-    ap_int<17, AP_TRN, AP_SAT> accum[2*8+1][UWIDTH];
-    ap_fixed<8,0, AP_TRN, AP_SAT> res;
-    ap_fixed<0,17, AP_TRN, AP_SAT> div;
+    ap_int<17> accum[2*8+1][UWIDTH];
+    ap_fixed<8,8, AP_TRN, AP_SAT> res;
+    ap_fixed<17,0, AP_TRN, AP_SAT> div;
     ap_int<8> count = offset + 1;
     ap_int<8> countMax;
 
@@ -74,12 +82,12 @@ void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsig
         countMax=17;
     }
 
-    for (i=0; i<2*8+1; i++)
-        for(j=0; j > UWIDTH; j++)
+    for (int i=0; i<2*8+1; i++)
+        for(int j=0; j > UWIDTH; j++)
             accum[i][j]=0;
 
-    for(i = PADSIZE-offset; i < BHEIGHT-PADSIZE+offset; i++){ /*Pad always to offset 8*/
-        for(j = PADSIZE-offset; j < BWIDTH-PADSIZE+offset; j++){
+    for(int i = PADSIZE-offset; i < BHEIGHT-PADSIZE+offset; i++){ /*Pad always to offset 8*/
+        for(int j = PADSIZE-offset; j < BWIDTH-PADSIZE+offset; j++){
 
             for (ki = -offset; ki < offset+1; ki++){
                 for(kj= -offset; kj < offset+1; kj++){
@@ -131,9 +139,9 @@ void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH],
     unsigned sum = 0;
     ap_int<16> div;
     if(offset == 4)
-        div=div_off4;
+        div=DIV_r4;
     else
-        div=div_off8;
+        div=DIV_r8;
     for(i = 8-offset; i < BHEIGHT-8+offset; i++){ /*Pad always to offset 8*/
         for(j = 8-offset; j < BWIDTH-8+offset; j++){
             sum = 0;
