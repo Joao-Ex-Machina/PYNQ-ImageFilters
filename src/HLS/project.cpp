@@ -34,13 +34,15 @@ void filter_Controller(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDT
 void checkered(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
 	int i,j;
     unsigned pixel;
-    for(i=PADSIZE; i< BHEIGHT-PADSIZE; i++)
-        for(j=PADSIZE; j < BWIDTH-PADSIZE; j ++)
+    for(i=PADSIZE; i< BHEIGHT-PADSIZE; i++){
+        for(j=PADSIZE; j < BWIDTH-PADSIZE; j ++){
             pixel=in[i][j];
             if (!((i ^ j) & 1)) /*use xor to add lsb and mask it, avoids using divisions*/
                 out[i-PADSIZE][j-PADSIZE]=0x0;
             else
                 out[i-PADSIZE][j-PADSIZE]=pixel;
+        }
+    }
 }
 
 void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
@@ -62,18 +64,19 @@ void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
 
 }
 
-void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset){
+void avg_Conv( unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset){
     /* iterable coordinates*/
     ap_int<8> ki, kj;
     ap_int<8> iaccum, jaccum;
     /* Bi-dimensional array of Q17.0 accumulators for the worst case*/
     /*Why Q17.0? Do 255 * 288....*/
-    ap_int<17> accum[2*8+1][UWIDTH];
-    ap_fixed<8,8, AP_TRN, AP_SAT> res;
+    ap_int<17> accum[3][2*8+1][UWIDTH];
+    ap_int<17> accumRed, accumGreen, accumBlue;
+    ap_fixed<8,8, AP_TRN, AP_SAT> res=0, resRed, resGreen, resBlue;
     ap_fixed<17,0, AP_TRN, AP_SAT> div;
     ap_int<8> count = offset + 1;
     ap_int<8> countMax;
-    unsigned pixel;
+    ap_uint<32> pixel;
     if(offset == 4){
         div=DIV_r4; /*setup Q0.17 divisors */
         countMax=9; /*setup max line counter */
@@ -83,13 +86,17 @@ void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsig
         countMax=17;
     }
 
-    for (int i=0; i<2*8+1; i++)
-        for(int j=0; j > UWIDTH; j++)
-            accum[i][j]=0;
+    for (int i=0; i<2*8+1; i++){
+        for(int j=0; j > UWIDTH; j++){
+		accum[0][i][j]=0;
+		accum[1][i][j]=0;
+		accum[2][i][j]=0;
+        }
+    }
+
 
     for(int i = PADSIZE-offset; i < BHEIGHT-PADSIZE+offset; i++){ /*Pad always to offset 8*/
         for(int j = PADSIZE-offset; j < BWIDTH-PADSIZE+offset; j++){
-
             pixel=in[i][j];
 
             for (ki = -offset; ki < offset+1; ki++){
@@ -108,9 +115,13 @@ void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsig
                     else if(iaccum >= countMax)
                         iaccum -= countMax;
 
-                    if(ki !=0 || kj !=0)  /*Self does not count to out*/
-                        accum[iaccum][jaccum] += pixel; /*have to finish accum indexing*/
-                }
+                    if(ki !=0 || kj !=0){  /*Self does not count to out*/
+                        accum[0][iaccum][jaccum] += pixel.range(23,16);
+                        accum[1][iaccum][jaccum] += pixel.range(15,8);
+                        accum[2][iaccum][jaccum] += pixel.range(7,0);
+
+                    }
+               }
             }
             if(i-PADSIZE-offset < PADSIZE || i-PADSIZE-offset >= UHEIGHT)
                 continue;
@@ -125,9 +136,13 @@ void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsig
             else if(iaccum >= countMax)
                 iaccum -= countMax;
 
-            res = accum[iaccum][jaccum] * div; /*Q17.0 * Q0.16 = Q17.16*/
-            out[i-PADSIZE][j-PADSIZE]= res;
-            accum[iaccum][jaccum]=0;
+            res.range(23,16) = accum[0][iaccum][jaccum] * div; /*Q17.0 * Q0.16 = Q17.16 put back into Q8.0*/
+            res.range(15,8)  = accum[1][iaccum][jaccum] * div;
+            res.range(7,0)   = accum[2][iaccum][jaccum] * div ;
+            out[i-PADSIZE][j-PADSIZE] = res;
+            accum[0][iaccum][jaccum]=0;
+            accum[1][iaccum][jaccum]=0;
+            accum[2][iaccum][jaccum]=0;
         }
         count++;
         if(count >= 8*2+1)
