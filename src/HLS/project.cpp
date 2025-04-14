@@ -33,13 +33,14 @@ void filter_Controller(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDT
 
 void checkered(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
 	int i,j;
-
+    unsigned pixel;
     for(i=PADSIZE; i< BHEIGHT-PADSIZE; i++)
         for(j=PADSIZE; j < BWIDTH-PADSIZE; j ++)
+            pixel=in[i][j];
             if (!((i ^ j) & 1)) /*use xor to add lsb and mask it, avoids using divisions*/
                 out[i-PADSIZE][j-PADSIZE]=0x0;
             else
-                out[i-PADSIZE][j-PADSIZE]=in[i][j];
+                out[i-PADSIZE][j-PADSIZE]=pixel;
 }
 
 void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
@@ -72,7 +73,7 @@ void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsig
     ap_fixed<17,0, AP_TRN, AP_SAT> div;
     ap_int<8> count = offset + 1;
     ap_int<8> countMax;
-
+    unsigned pixel;
     if(offset == 4){
         div=DIV_r4; /*setup Q0.17 divisors */
         countMax=9; /*setup max line counter */
@@ -88,6 +89,8 @@ void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsig
 
     for(int i = PADSIZE-offset; i < BHEIGHT-PADSIZE+offset; i++){ /*Pad always to offset 8*/
         for(int j = PADSIZE-offset; j < BWIDTH-PADSIZE+offset; j++){
+
+            pixel=in[i][j];
 
             for (ki = -offset; ki < offset+1; ki++){
                 for(kj= -offset; kj < offset+1; kj++){
@@ -106,7 +109,7 @@ void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsig
                         iaccum -= countMax;
 
                     if(ki !=0 || kj !=0)  /*Self does not count to out*/
-                        accum[iaccum][jaccum] += in[i][j]; /*have to finish accum indexing*/
+                        accum[iaccum][jaccum] += pixel; /*have to finish accum indexing*/
                 }
             }
             if(i-PADSIZE-offset < PADSIZE || i-PADSIZE-offset >= UHEIGHT)
