@@ -15,6 +15,7 @@
 void checkered(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]);
 void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]);
 void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset);
+void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset)
 
 void filter_Controller(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], ap_int<1> sw0, ap_int<1> sw1){
     #pragma HLS INTERFACE s_axilite port=return
@@ -151,23 +152,37 @@ void avg_Conv( unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsi
 
 }
 
-void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[BHEIGHT][BWIDTH], unsigned offset){
+void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset){
     unsigned i, j;
     unsigned ki, kj;
-    unsigned sum = 0;
-    ap_int<16> div;
+    ap_int<17> sumRed = 0;
+    ap_int<17> sumGreen = 0;
+    ap_int<17> sumBlue = 0;
+    ap_uint<32> pixel, res =0;
+    ap_fixed<17,0, AP_TRN, AP_SAT> div;
+
     if(offset == 4)
         div=DIV_r4;
     else
         div=DIV_r8;
-    for(i = 8-offset; i < BHEIGHT-8+offset; i++){ /*Pad always to offset 8*/
-        for(j = 8-offset; j < BWIDTH-8+offset; j++){
+
+    for(i = PADSIZE; i < BHEIGHT-PADSIZE ; i++){ /*Pad always to offset 8*/
+        for(j = PADSIZE; j < BWIDTH-PADSIZE; j++){
             sum = 0;
-            for (ki = -offset; ki < offset+1; ki++) /*not parallelizable - AACum*/
-                for(kj= -offset; kj < offset+1; kj++)
-                    if(ki !=0 || kj !=0)
-                        sum+=in[i+ki][i+kj];
-            out[i][j]= sum * div; /*replace by piecewise value from memory*/
+            for (ki = -offset; ki < offset+1; ki++){
+                for(kj= -offset; kj < offset+1; kj++){
+                    if(ki !=0 || kj !=0){
+                        pixel=in[i+ki][j+kj]; /*horrible no reuse of memory, multiple accesses*/
+                        resBlue  += pixel.range(23,16);
+                        resGreen += pixel.range(15,8);
+                        resRed   += pixel.range(7,0);
+                    }
+                }
+            }
+            res.range(23,16) = resBlue * div; /*Q17.0 * Q0.16 = Q17.16 put back into Q8.0*/
+            res.range(15,8)  = resGreen * div;
+            res.range(7,0)   = resRed * div ;
+            out[i-PADSIZE][j-PADSIZE]= res; /*replace by piecewise value from memory*/
         }
     }
 
