@@ -15,7 +15,7 @@
 void checkered(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]);
 void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]);
 void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset);
-void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset)
+void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset);
 
 void filter_Controller(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], ap_int<1> sw0, ap_int<1> sw1){
     #pragma HLS INTERFACE s_axilite port=return
@@ -27,9 +27,9 @@ void filter_Controller(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDT
     else if(sw0==0 && sw1==1)
         frame (in, out);
     else if(sw0==1 && sw1==0)
-        avg_Conv(in, out, 4);
+        naive_avg_Conv(in, out, 4);
     else /*if (sw0==1 && sw1==1)*/
-        avg_Conv(in, out, 8);
+	naive_avg_Conv(in, out, 8);
 }
 
 void checkered(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
@@ -65,6 +65,7 @@ void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
 
 }
 
+/*This needs to be extensibly reviewed*/
 void avg_Conv( unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset){
     /* iterable coordinates*/
     ap_int<8> ki, kj;
@@ -87,8 +88,8 @@ void avg_Conv( unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsi
         countMax=17;
     }
 
-    for (int i=0; i<2*8+1; i++){
-        for(int j=0; j > UWIDTH; j++){
+    loop_init_i: for (int i=0; i<2*8+1; i++){
+        loop_init_j: for(int j=0; j < UWIDTH; j++){
 		accum[0][i][j]=0;
 		accum[1][i][j]=0;
 		accum[2][i][j]=0;
@@ -96,12 +97,12 @@ void avg_Conv( unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsi
     }
 
 
-    for(int i = PADSIZE-offset; i < BHEIGHT-PADSIZE+offset; i++){ /*Pad always to offset 8*/
-        for(int j = PADSIZE-offset; j < BWIDTH-PADSIZE+offset; j++){
+    loop_accum_i: for(int i = PADSIZE-offset; i < BHEIGHT-PADSIZE+offset; i++){ /*Pad always to offset 8*/
+        loop_accum_j: for(int j = PADSIZE-offset; j < BWIDTH-PADSIZE+offset; j++){
             pixel=in[i][j];
 
-            for (ki = -offset; ki < offset+1; ki++){
-                for(kj= -offset; kj < offset+1; kj++){
+            loop_ki: for (ki = -offset; ki < offset+1; ki++){
+                loop_kj: for(kj= -offset; kj < offset+1; kj++){
 
                     iaccum = i + ki - PADSIZE; /*calculate input image indexing*/
                     jaccum = j + kj - PADSIZE;
@@ -117,9 +118,13 @@ void avg_Conv( unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsi
                         iaccum -= countMax;
 
                     if(ki !=0 || kj !=0){  /*Self does not count to out*/
-                        accum[0][iaccum][jaccum] += pixel.range(23,16);
-                        accum[1][iaccum][jaccum] += pixel.range(15,8);
-                        accum[2][iaccum][jaccum] += pixel.range(7,0);
+			ap_int<17> aux = 0;
+			aux(7,0) = pixel.range(23,16);
+			accum[0][iaccum][jaccum] += aux;
+			aux(7,0) = pixel.range(15,8);
+			accum[1][iaccum][jaccum] += aux;
+			aux(7,0) = pixel.range(7,0);
+			accum[2][iaccum][jaccum] += aux;
 
                     }
                }
@@ -141,11 +146,11 @@ void avg_Conv( unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsi
             res.range(15,8)  = accum[1][iaccum][jaccum] * div;
             res.range(7,0)   = accum[2][iaccum][jaccum] * div ;
             out[i-PADSIZE][j-PADSIZE] = res;
-            accum[0][iaccum][jaccum]=0;
-            accum[1][iaccum][jaccum]=0;
-            accum[2][iaccum][jaccum]=0;
+            accum[0][iaccum][jaccum] = 0;
+            accum[1][iaccum][jaccum] = 0;
+            accum[2][iaccum][jaccum] = 0;
         }
-        count++;
+        count++; /*to create a perfect loop we have to remove it from here*/
         if(count >= 8*2+1)
             count=0;
     }
@@ -155,10 +160,10 @@ void avg_Conv( unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsi
 void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset){
     unsigned i, j;
     unsigned ki, kj;
-    ap_int<17> sumRed = 0;
-    ap_int<17> sumGreen = 0;
-    ap_int<17> sumBlue = 0;
-    ap_uint<32> pixel, res =0;
+    ap_fixed<17,17> sumRed = 0;
+    ap_fixed<17,17> sumGreen = 0;
+    ap_fixed<17,17> sumBlue = 0;
+    ap_fixed<32,32> pixel, res = 0;
     ap_fixed<17,0, AP_TRN, AP_SAT> div;
 
     if(offset == 4)
@@ -166,23 +171,25 @@ void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH],
     else
         div=DIV_r8;
 
-    for(i = PADSIZE; i < BHEIGHT-PADSIZE ; i++){ /*Pad always to offset 8*/
-        for(j = PADSIZE; j < BWIDTH-PADSIZE; j++){
-            sum = 0;
-            for (ki = -offset; ki < offset+1; ki++){
-                for(kj= -offset; kj < offset+1; kj++){
+    loop_i: for(i = PADSIZE; i < BHEIGHT-PADSIZE ; i++){ /*Pad always to offset 8*/
+        loop_j: for(j = PADSIZE; j < BWIDTH-PADSIZE; j++){
+            loop_ki: for (ki = -offset; ki < offset+1; ki++){
+                loop_kj: for(kj= -offset; kj < offset+1; kj++){
                     if(ki !=0 || kj !=0){
-                        pixel=in[i+ki][j+kj]; /*horrible no reuse of memory, multiple accesses*/
-                        resBlue  += pixel.range(23,16);
-                        resGreen += pixel.range(15,8);
-                        resRed   += pixel.range(7,0);
+                        pixel=in[i+ki][j+kj]; /*horrible, no reuse of memory, multiple accesses*/
+                        sumBlue  += pixel.range(23,16);
+                        sumGreen += pixel.range(15,8);
+                        sumRed   += pixel.range(7,0);
                     }
                 }
             }
-            res.range(23,16) = resBlue * div; /*Q17.0 * Q0.16 = Q17.16 put back into Q8.0*/
-            res.range(15,8)  = resGreen * div;
-            res.range(7,0)   = resRed * div ;
+            res.range(23,16) = sumBlue * div; /*Q17.0 * Q0.16 = Q17.16 put back into Q8.0*/
+            res.range(15,8)  = sumGreen * div;
+            res.range(7,0)   = sumRed * div ;
             out[i-PADSIZE][j-PADSIZE]= res; /*replace by piecewise value from memory*/
+            sumBlue  = 0;
+            sumGreen = 0;
+            sumRed   = 0;
         }
     }
 
