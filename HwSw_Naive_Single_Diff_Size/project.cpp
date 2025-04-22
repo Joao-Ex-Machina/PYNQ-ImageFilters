@@ -20,23 +20,19 @@ void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH],
 void filter_Controller(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], ap_int<1> sw0, ap_int<1> sw1){
 
     #pragma HLS INTERFACE s_axilite port=return
-    #pragma HLS INTERFACE bram storage_type=rom_1p port=in
+    #pragma HLS INTERFACE bram port=in
     #pragma HLS INTERFACE bram port=out
 
-    naive_avg_Conv(in, out, 4);
-    // if(sw1==0 && sw0==0) {
-    //     // #pragma HLS inline
-    //     checkered(in, out);
-    // } else if(sw1==0 && sw0==1) {
-    //     // #pragma HLS inline
-    //     frame (in, out);
-    // } else if(sw1==1 && sw0==0) {
-    //     // #pragma HLS inline
-    //     naive_avg_Conv(in, out, 4);
-    // } else /*if (sw1==1 && sw0==1)*/ {
-    //     // #pragma HLS inline
-	//     naive_avg_Conv(in, out, 8);
-    // }
+
+    if(sw1==0 && sw0==0) {
+         checkered(in, out);
+     } else if(sw1==0 && sw0==1) {
+         frame (in, out);
+     } else if(sw1==1 && sw0==0) {
+         naive_avg_Conv(in, out, 4);
+     } else /*if (sw1==1 && sw0==1)*/ {
+	     naive_avg_Conv(in, out, 8);
+     }
 }
 
 void checkered(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
@@ -167,9 +163,9 @@ void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
 void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset){
 // #pragma HLS resource variable=in core=RAM_1P
 // #pragma HLS resource variable=out core=RAM_1P
-#pragma HLS bind_storage variable=in type=rom_1p
+
     unsigned i, j;
-    unsigned ki, kj;
+    signed ki, kj;
     ap_fixed<17,17> sumRed = 0;
     ap_fixed<17,17> sumGreen = 0;
     ap_fixed<17,17> sumBlue = 0;
@@ -182,10 +178,12 @@ void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH],
         div=DIV_r8;
 
     loop_i: for(i = PADSIZE; i < BHEIGHT-PADSIZE ; i++) { /*Pad always to offset 8*/
+
         loop_j: for(j = PADSIZE; j < BWIDTH-PADSIZE; j++) {
+
             loop_ki: for (ki = -offset; ki < offset+1; ki++) {
+
                 loop_kj: for(kj= -offset; kj < offset+1; kj++) {
-                    #pragma HLS PIPELINE II=1
                     if(ki !=0 || kj !=0) {
                         pixel=in[i+ki][j+kj]; /*horrible, no reuse of memory, multiple accesses*/
                         sumBlue  += pixel.range(23,16);
