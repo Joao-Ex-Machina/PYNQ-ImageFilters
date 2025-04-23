@@ -15,7 +15,7 @@
 void checkered(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]);
 void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]);
 // void avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset);
-void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset);
+void naive_avg_Conv4(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset);
 
 void filter_Controller(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], ap_int<1> sw0, ap_int<1> sw1){
 
@@ -29,9 +29,9 @@ void filter_Controller(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDT
      } else if(sw1==0 && sw0==1) {
          frame (in, out);
      } else if(sw1==1 && sw0==0) {
-         naive_avg_Conv(in, out, 4);
+         naive_avg_Conv4(in, out, 4);
      } else /*if (sw1==1 && sw0==1)*/ {
-	     naive_avg_Conv(in, out, 8);
+	     naive_avg_Conv4(in, out, 8);
      }
 }
 
@@ -55,16 +55,17 @@ void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
     for(i = PADSIZE + 1; i < BHEIGHT - PADSIZE - 1; i++) /*non-framed*/
         for(j = PADSIZE + 1; j < BWIDTH - PADSIZE - 1; j++)
                 out[i-PADSIZE][j-PADSIZE]=in[i][j];
-
-    for(i=0; i < UHEIGHT; i++){ /*vertical frame*/
+/*
+    for(i=0; i < UHEIGHT; i++){ //vertical frame
         out[i][0]=0x0;
         out[i][UWIDTH-1]=0x0;
     }
 
-    for(j=1; j < UWIDTH-1; j++){ /*horizontal frame*/
+    for(j=1; j < UWIDTH-1; j++){ //horizontal frame
         out[0][j]=0x0;
         out[UHEIGHT-1][j]=0x0;
     }
+*/
 
 }
 
@@ -160,10 +161,7 @@ void frame(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH]){
 
 // }
 
-void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset){
-// #pragma HLS resource variable=in core=RAM_1P
-// #pragma HLS resource variable=out core=RAM_1P
-
+void naive_avg_Conv4(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH], unsigned offset){
     unsigned i, j;
     signed ki, kj;
     ap_fixed<17,17> sumRed = 0;
@@ -181,11 +179,11 @@ void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH],
 
         loop_j: for(j = PADSIZE; j < BWIDTH-PADSIZE; j++) {
 
-            loop_ki: for (ki = -offset; ki < offset+1; ki++) {
+            loop_ki: for (ki = -4; ki < 4+1; ki++) {
 
-                loop_kj: for(kj= -offset; kj < offset+1; kj++) {
+                loop_kj: for(kj= -4; kj < 4+1; kj++) {
                     if(ki !=0 || kj !=0) {
-                        pixel=in[i+ki][j+kj]; /*horrible, no reuse of memory, multiple accesses*/
+                        pixel= (ap_fixed<32,32>) in[i+ki][j+kj]; /*horrible, no reuse of memory, multiple accesses*/
                         sumBlue  += pixel.range(23,16);
                         sumGreen += pixel.range(15,8);
                         sumRed   += pixel.range(7,0);
@@ -195,7 +193,7 @@ void naive_avg_Conv(unsigned in[BHEIGHT][BWIDTH], unsigned out[UHEIGHT][UWIDTH],
             res.range(23,16) = sumBlue * div; /*Q17.0 * Q0.16 = Q17.16 put back into Q8.0*/
             res.range(15,8)  = sumGreen * div;
             res.range(7,0)   = sumRed * div ;
-            out[i-PADSIZE][j-PADSIZE]= res; /*replace by piecewise value from memory*/
+            out[i-PADSIZE][j-PADSIZE]= (unsigned)res; /*replace by piecewise value from memory*/
             sumBlue  = 0;
             sumGreen = 0;
             sumRed   = 0;
